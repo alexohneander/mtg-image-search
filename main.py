@@ -23,45 +23,45 @@ except Exception as e: # Broad exception to catch cases where collection doesn't
     print(f"Collection 'mtg_collection' nicht gefunden oder Fehler beim Zugriff ({e}), erstelle sie.")
     client.create_collection(
         collection_name="mtg_collection",
-        vectors_config=VectorParams(size=512, distance=Distance.DOT), # Adjusted for CLIP ViT-B/32
+        vectors_config=VectorParams(size=4, distance=Distance.DOT), # Adjusted for CLIP ViT-B/32
         )
 
-    # Load the pre-trained Sentence Transformer model
-    # Models like 'clip-ViT-B-32' are good for image embeddings.
-    # The first time you run this, it might download the model, which can take a few minutes.
-    print("Lade SentenceTransformer-Modell 'clip-ViT-B-32' (kann beim ersten Mal dauern)...")
-    model = SentenceTransformer('clip-ViT-B-32')
-    print("Modell geladen.")
+# Load the pre-trained Sentence Transformer model
+# Models like 'clip-ViT-B-32' are good for image embeddings.
+# The first time you run this, it might download the model, which can take a few minutes.
+print("Lade SentenceTransformer-Modell 'clip-ViT-B-32' (kann beim ersten Mal dauern)...")
+model = SentenceTransformer('clip-ViT-B-32')
+print("Modell geladen.")
 
-    def image_to_vector(image_path: str, model_instance: SentenceTransformer) -> list[float] | None:
-        """
-        Wandelt ein Bild unter dem gegebenen Pfad in einen Vektor um,
-        unter Verwendung des bereitgestellten SentenceTransformer-Modells.
+def image_to_vector(image_path: str, model_instance: SentenceTransformer) -> list[float] | None:
+    """
+    Wandelt ein Bild unter dem gegebenen Pfad in einen Vektor um,
+    unter Verwendung des bereitgestellten SentenceTransformer-Modells.
 
-        Args:
-            image_path: Der Pfad zum Bild.
-            model_instance: Die geladene Instanz des SentenceTransformer-Modells.
+    Args:
+        image_path: Der Pfad zum Bild.
+        model_instance: Die geladene Instanz des SentenceTransformer-Modells.
 
-        Returns:
-            Eine Liste von Floats, die den Bildvektor darstellen, oder None bei einem Fehler.
-        """
-        try:
-            # Öffne das Bild mit Pillow
-            img = Image.open(image_path)
-            # Stelle sicher, dass das Bild im RGB-Format ist, falls das Modell dies erfordert
-            # (CLIP-Modelle über sentence-transformers handhaben dies typischerweise gut)
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
+    Returns:
+        Eine Liste von Floats, die den Bildvektor darstellen, oder None bei einem Fehler.
+    """
+    try:
+        # Öffne das Bild mit Pillow
+        img = Image.open(image_path)
+        # Stelle sicher, dass das Bild im RGB-Format ist, falls das Modell dies erfordert
+        # (CLIP-Modelle über sentence-transformers handhaben dies typischerweise gut)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
 
-            # Die .encode() Methode von sentence-transformers kann direkt PIL Image Objekte verarbeiten.
-            vector = model_instance.encode(img).tolist()
-            return vector
-        except FileNotFoundError:
-            print(f"Fehler: Bild nicht gefunden unter {image_path}")
-            return None
-        except Exception as e:
-            print(f"Fehler bei der Vektorisierung von {image_path}: {e}")
-            return None
+        # Die .encode() Methode von sentence-transformers kann direkt PIL Image Objekte verarbeiten.
+        vector = model_instance.encode(img).tolist()
+        return vector
+    except FileNotFoundError:
+        print(f"Fehler: Bild nicht gefunden unter {image_path}")
+        return None
+    except Exception as e:
+        print(f"Fehler bei der Vektorisierung von {image_path}: {e}")
+        return None
 
     # Create Vector from img
 
