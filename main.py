@@ -23,7 +23,7 @@ except Exception as e: # Broad exception to catch cases where collection doesn't
     print(f"Collection 'mtg_collection' nicht gefunden oder Fehler beim Zugriff ({e}), erstelle sie.")
     client.create_collection(
         collection_name="mtg_collection",
-        vectors_config=VectorParams(size=4, distance=Distance.DOT), # Adjusted for CLIP ViT-B/32
+        vectors_config=VectorParams(size=512, distance=Distance.COSINE), # Adjusted for CLIP ViT-B/32
         )
 
 # Load the pre-trained Sentence Transformer model
@@ -83,33 +83,58 @@ if not os.path.exists(image_full_dir):
     os.makedirs(image_full_dir)
     print(f"INFO: Verzeichnis {image_full_dir} erstellt. Bitte füge dort Bilder hinzu.")
 
-# Hole alle Bilddateien aus dem Verzeichnis
-try:
-    image_files = [os.path.join(image_full_dir, f) for f in os.listdir(image_full_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-except FileNotFoundError:
-    print(f"FEHLER: Das Bildverzeichnis {image_full_dir} wurde nicht gefunden, obwohl versucht wurde, es zu erstellen.")
-    image_files = []
+# Hole alle Bilddateien aus dem Verzeichnis und seinen Unterverzeichnissen
+image_details_list = [] # Umbenannt von image_files, speichert jetzt Tupel (image_path, set_name)
+# Es wird davon ausgegangen, dass image_full_dir existiert und ein Verzeichnis ist,
+# da dies zuvor im Skript sichergestellt wurde (os.makedirs).
+for root, _, files in os.walk(image_full_dir):
+    for filename in files:
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_path = os.path.join(root, filename)
+            # Bestimme den 'set'-Namen aus dem Unterverzeichnis
+            # os.path.relpath gibt den relativen Pfad von image_full_dir zu root zurück
+            # z.B. wenn image_full_dir = 'images' und root = 'images/set1/subsetA', dann ist set_name 'set1/subsetA'
+            set_name = os.path.relpath(root, image_full_dir)
+            # Wenn das Bild direkt im image_full_dir liegt, ist set_name '.',
+            # was wir hier als 'base' (oder einen anderen Standardwert) behandeln.
+            if set_name == '.':
+                set_name = "base" 
+            image_details_list.append((image_path, set_name))
 
 
 points_to_upsert = []
-if not image_files:
-    print(f"WARNUNG: Keine Bilder im Verzeichnis {image_full_dir} gefunden. Es werden keine Punkte hochgeladen.")
-    print(f"Bitte füge Bilder (z.B. .jpg, .png) in das Verzeichnis '{image_full_dir}' und führe das Skript erneut aus.")
+if not image_details_list: # Geändert von image_files
+    print(f"WARNUNG: Keine Bilder im Verzeichnis {image_full_dir} oder seinen Unterverzeichnissen gefunden. Es werden keine Punkte hochgeladen.")
+    print(f"Bitte füge Bilder (z.B. .jpg, .png) in das Verzeichnis '{image_full_dir}' und/oder seine Unterverzeichnisse und führe das Skript erneut aus.")
 else:
-    print(f"\nGefundene Bilder zum Verarbeiten in {image_full_dir}:")
-    for path in image_files:
-        print(f"- {os.path.basename(path)}")
+    print(f"\nGefundene Bilder zum Verarbeiten aus {image_full_dir} und seinen Unterverzeichnissen:")
+    for img_path, set_name in image_details_list: # Geändert von path in image_files
+        print(f"- {os.path.basename(img_path)} (Set: {set_name})") # Zeigt auch den Set-Namen an
 
-    for idx, img_path in enumerate(image_files):
+    for idx, (img_path, set_name) in enumerate(image_details_list): # Geändert von img_path in image_files, jetzt Tupel (img_path, set_name)
         print(f"\nVerarbeite Bild: {img_path}...")
         vector = image_to_vector(img_path, model)
         if vector:
-            # Verwende den Dateinamen als Teil des Payloads für bessere Nachvollziehbarkeit
+            # Verwende den Dateinamen und Set-Namen als Teil des Payloads
             file_name = os.path.basename(img_path)
+            
+            # Konstruiere die image_url basierend auf dem Set.
+            # Annahme: Wenn set_name "base" ist, liegt das Bild im Root-Verzeichnis des Servers unter /
+            # Ansonsten wird set_name als Pfadpräfix verwendet (z.B. /set_name/datei.jpg).
+            # Dies setzt voraus, dass der Server entsprechend konfiguriert ist.
+            url_path_prefix = ""
+            if set_name != "base":
+                url_path_prefix = set_name + "/" # Fügt den Slash hinzu, wenn ein Set-Name vorhanden ist
+
             points_to_upsert.append(
-                PointStruct(id=idx + 1, vector=vector, payload={"image_path": img_path, "file_name": file_name})
+                PointStruct(id=idx + 1, vector=vector, payload={
+                    "image_path": img_path,
+                    "image_url": f"http://localhost:8000/{url_path_prefix}{file_name}",
+                    "file_name": file_name,
+                    "set": set_name  # Hinzugefügtes Set-Feld
+                })
             )
-            print(f"Vektor für {file_name} erstellt und für Upsert vorbereitet.")
+            print(f"Vektor für {file_name} (Set: {set_name}) erstellt und für Upsert vorbereitet.")
         else:
             print(f"Konnte Vektor für {img_path} nicht erstellen. Wird übersprungen.")
 
@@ -127,33 +152,19 @@ else:
     print("\nKeine gültigen Punkte zum Hochladen vorhanden.")
 
 # --- Beispiel-Suche nach ähnlichen Bildern ---
-if points_to_upsert:
-    # Für die Suche verwenden wir den Vektor des ersten erfolgreich verarbeiteten Bildes
-    # Du könntest hier auch ein separates Query-Bild verarbeiten
-    query_image_path_for_search = points_to_upsert[0].payload["image_path"]
-    print(f"\nSuche nach Bildern, die ähnlich sind zu: {query_image_path_for_search} (ID: {points_to_upsert[0].id})")
+# if points_to_upsert:
+#     # Für die Suche verwenden wir den Vektor des ersten erfolgreich verarbeiteten Bildes
+#     # Du könntest hier auch ein separates Query-Bild verarbeiten
+#     query_image_path_for_search = points_to_upsert[0].payload["image_url"]
+#     print(f"\nSuche nach Bildern, die ähnlich sind zu: {query_image_path_for_search} (ID: {points_to_upsert[0].id})")
 
-    query_vector_for_search = points_to_upsert[0].vector
+#     query_vector_for_search = points_to_upsert[0].vector
 
-    # Alternativ: Vektor für ein spezifisches Query-Bild generieren (auskommentiert)
-    # query_image_to_search_path = "pfad/zu/deinem/suchbild.jpg" # TODO: Anpassen, falls benötigt
-    # if os.path.exists(query_image_to_search_path):
-    #    query_vector_for_search = image_to_vector(query_image_to_search_path,05, 0.61, 0.76, 0.74], payload={"city": "Berlin"}),
-#         PointStruct(id=2, vector=[0.19, 0.81, 0.75, 0.11], payload={"city": "London"}),
-#         PointStruct(id=3, vector=[0.36, 0.55, 0.47, 0.94], payload={"city": "Moscow"}),
-#         PointStruct(id=4, vector=[0.18, 0.01, 0.85, 0.80], payload={"city": "New York"}),
-#         PointStruct(id=5, vector=[0.24, 0.18, 0.22, 0.44], payload={"city": "Beijing"}),
-#         PointStruct(id=6, vector=[0.35, 0.08, 0.11, 0.44], payload={"city": "Mumbai"}),
-#     ],
-# )
+# search_result = client.query_points(
+#     collection_name="mtg_collection",
+#     query=[0.2, 0.1, 0.9, 0.7],
+#     with_payload=False,
+#     limit=3
+# ).points
 
-# print(operation_info)
-
-search_result = client.query_points(
-    collection_name="mtg_collection",
-    query=[0.2, 0.1, 0.9, 0.7],
-    with_payload=False,
-    limit=3
-).points
-
-print(search_result)
+# print(search_result)
