@@ -2,7 +2,7 @@ annotated-types==0.7.0
 anyio==4.9.0
 certifi==2025.4.26
 charset-normalizer==3.4.2
-filelock==3.18.0
+filelock==3.20.1
 fsspec==2025.3.2
 grpcio==1.71.0
 h11==0.16.0
